@@ -1,0 +1,292 @@
+<html>
+<head>
+	<title>Sentence Diagrammer</title>
+	<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.5.0/jquery.js"></script>
+	<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.8.10/jquery-ui.min.js"></script>
+	<script src="underscore.js"></script>
+	<link rel="stylesheet" href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8/themes/smoothness/jquery-ui.css" type="text/css" media="all" />
+	<link rel="stylesheet" href="style/blueprint/screen.css" type="text/css" media="all" />
+	<script>
+		$(function(){
+			
+			var sentence = $('.sentence');
+			
+			var getLookupWords = function(words) {
+				var holder = $('<div />');
+				$.each(words, function(i, word) {
+					holder.append($('<span />').text(word.text())
+						.mouseover(function(w){
+							return function() {
+								w.addClass('hyperActiveWord');
+							}
+						}(word))
+						.mouseout(function(w){
+							return function() {
+								w.removeClass('hyperActiveWord');
+							}
+						}(word)));
+						
+					holder.append(' ');
+				});
+				return holder;
+			};
+			
+			var diagram = { 
+				parts: {
+					clause_subject: false,
+					clause_verb: false,
+					clause_object: false
+				}, 
+				draw: function() {
+					var self = diagram;
+					var view = $('.diagram').html('');
+					
+					var generateChildren = function(children) {
+						var kids = $('<ul />');
+						$.each(children, function(i, child) {
+							var kid = $('<li />').append(getLookupWords(child.root));
+							if(child.children.length) {
+								kid.append(generateChildren(child.children));
+							}
+							kids.append(kid); 
+						});
+						
+						return kids;
+					};
+					
+					var generateFragment = function(frag) {
+						var li = $('<li />').append(getLookupWords(frag.root)).addClass(frag.type);
+						
+						if(frag.children.length) {
+							li.append(generateChildren(frag.children));
+						}
+						
+						view.append(li);
+					};
+					
+					if(self.parts.clause_subject) {
+						generateFragment(self.parts.clause_subject);
+					}
+					if(self.parts.clause_verb) {
+						generateFragment(self.parts.clause_verb);
+					}
+					if(self.parts.clause_object) {
+						generateFragment(self.parts.clause_object);
+					}
+					
+					$('ul.diagram > li > ul li').each(function(i, el) {
+					    var cur = $(el);
+
+						if(cur.prev().length) {
+							var prev = cur.prev().first();
+							var prevDiv = prev.find('div').first(); 
+
+							$('ul.diagram').append($('<div />').css({
+								position: 'absolute', 
+								height: prev.height(), 
+								top: prevDiv.position().top + prevDiv.height(), 
+								width: 2, 
+								background: '#000000', 
+								left: prev.position().left}));
+					    }
+
+						cur.find('div').first().css({width: cur.find('span').first().width()})
+					});
+				}
+			};
+			window.diagram = diagram; 
+			
+			var words = sentence.html().split(' ');
+			sentence.html('');
+			var startWord = false;
+			var lastWord = false;
+			var unhighlightAllWords = function() { 
+				sentence.find('span').removeClass('activeWord');
+			};
+			
+			var removeFragmentControl = function() {
+				$('#fragmentLabel').remove();
+				startWord = lastWord = false;
+				unhighlightAllWords();
+			};
+			
+			var forWordInRange = function(start, end, func) {
+				_.each(end > start ? _.range(start, end + 1) : _.range(end, start + 1), function(num){
+					func($('#word-' + num));
+				}); 
+			};
+			
+			$.each(words, function(i, word){
+				var span = $('<span />')
+					.text(word)
+					.attr({'id': 'word-' + i})
+					.click(function(evt) {
+						if(span.hasClass('selectedWord')) {
+							return;
+						}
+						
+						if(startWord === false) {
+							startWord = i;
+							span.addClass('activeWord');
+						} else if(lastWord === false) {
+							lastWord = i;
+							
+							if(startWord <= lastWord) {
+								var left = $('#word-' + startWord);
+								var right = $('#word-' + lastWord);
+							} else {
+								var left = $('#word-' + lastWord);
+								var right = $('#word-' + startWord);
+							}
+							
+							var fragmentPart = $('<select />');
+							
+							if(!diagram.parts.clause_subject) { 
+								fragmentPart.append($('<option />').attr('value', 'clause_subject').text('subject of clause'));
+							}
+							if(!diagram.parts.clause_verb) {
+								fragmentPart.append($( '<option />').attr('value', 'clause_verb').text('verb of clause'));
+							}
+							if(!diagram.parts.clause_object) { 
+								fragmentPart.append($('<option />').attr('value', 'clause_object').text('direct object'));
+							}
+							
+							var wordMap = {};
+							
+							var childOptions = function(part, children, indent) {
+								return $.map(children, function(item, index) {
+									var uid = part + '-' + index;
+									wordMap[uid] = item;
+									var kid = $('<option />')
+										.attr('value', uid)
+										.css('padding-left', indent * 25)
+										.text(item.phrase);
+									if(item.children.length) {
+										return [kid, childOptions(uid, item.children, indent + 1)];
+									} else {
+										return kid;
+									}
+								});
+							};
+							
+							if(diagram.parts.clause_subject && diagram.parts.clause_verb && diagram.parts.clause_object) {
+								fragmentPart.addClass('normal');
+								$.each(diagram.parts, function(part, props) {
+									wordMap[part] = props;
+									fragmentPart.append($('<option />').attr('value', part).text(props.phrase));
+
+									if(props.children.length) {
+										fragmentPart.append.apply(fragmentPart, _.flatten(childOptions(part, props.children, 1)));
+									}
+								});
+							}
+							
+							$('<div />')
+								.attr({'id': 'fragmentLabel'})
+								.css({
+									position: 'absolute',
+									left: left.position().left, 
+									top: left.position().top + left.height() + 5,
+								})
+								.append(
+									$('<div />')
+										.css({
+											height: 8,
+											border: '1px solid #000',
+											borderTop: 0,
+											width: (right.position().left + right.width()) - left.position().left,
+											marginBottom: 5
+										}),
+									$('<div />').append(
+										fragmentPart,
+										$('<button />').text('ok').button().click(function(){
+											var part = fragmentPart.val();
+											var words = [];
+											
+											forWordInRange(startWord, lastWord, function(word) {
+												if(!word.hasClass('selectedWord')) {
+													words.push(word);
+													word.addClass('selectedWord');
+												}
+											});
+											
+											var phrase = $.map(words, function(w) { 
+												return w.text()
+											}).join(' ');
+											
+											if(fragmentPart.hasClass('normal')) {
+												wordMap[part].children.push({
+													root: words,
+													type: 'description',
+													children: [],
+													phrase: phrase
+												});
+											} else {
+												diagram.parts[part] = {
+													root: words, 
+													type: part,
+													children: [], 
+													phrase: phrase
+												};
+											}
+											
+											removeFragmentControl();
+											diagram.draw();
+										}),
+										$('<button />').text('cancel').button().click(removeFragmentControl)))
+								.appendTo(sentence);
+						}
+					})
+					.mouseover(function(){
+						if(startWord !== false && lastWord === false) {
+							unhighlightAllWords();
+							forWordInRange(startWord, i, function(word) {
+								if(!word.hasClass('selectedWord')) {
+									word.addClass('activeWord');
+								}
+							});
+						}
+					})
+					.appendTo(sentence);
+				sentence.append('<span>&nbsp;</span>'); 
+			});
+			
+		});
+	</script>
+	<style>
+		body { 
+			-webkit-user-select: none;
+			-khtml-user-select: none;
+			-moz-user-select: none;
+			-o-user-select: none;
+			user-select: none;
+		}
+	
+		.sentence { margin-top:2em; position: relative; }
+		.sentence > span { font-size: 200%; }
+		.sentence > span {cursor: pointer; } 
+		.sentence > span.activeWord { background: #efefef; }
+		.sentence select { font-size: 1em; line-height: 1.4em; padding: 0.4em 1em }
+		.sentence select option { font-size: 1em; } 
+		.sentence button { margin-left: 5px; font-size: 1em; } 
+
+		li { padding: 0; }
+		.diagram { margin-top: 3em; font-size: 200%; position: relative; }
+		.diagram > li { display: inline-block; min-height: 3em; float: left; }
+		.diagram > li ul { margin-right: 10px; } 
+		li > div { border-bottom: 2px solid #333; padding: 5px; padding-bottom: 0; cursor: pointer; }
+		li.clause_subject { border-right: 2px solid #333; } 
+		li.clause_object > div { border-left: 2px solid #333; }
+		.diagram > li ul li { list-style-type: none; } 
+		.diagram > li ul li > div { border-left: 2px solid #333; }
+		.selectedWord { color: #ccc; } 
+		.hyperActiveWord { background: #ccc; color: #000; }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="sentence">Every day he sends his closest friends some email.</div>
+		<ul class="diagram"></ul>
+	</div>
+</body>
+</html>
